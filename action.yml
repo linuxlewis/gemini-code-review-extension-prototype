@@ -1,0 +1,243 @@
+name: Gemini Inline PR Review
+description: Run Gemini CLI as an inline-only GitHub pull request reviewer.
+
+inputs:
+  gemini_api_key:
+    description: Gemini API key from Google AI Studio.
+    required: false
+  google_api_key:
+    description: Vertex AI API key.
+    required: false
+  github_token:
+    description: GitHub token used by the GitHub MCP server to read PRs and write review comments.
+    required: false
+  pr_number:
+    description: Pull request number. Usually only needed for workflow_dispatch.
+    required: false
+  additional_context:
+    description: Optional review focus or extra instructions.
+    required: false
+    default: ""
+  comment_trigger:
+    description: Marker used to extract additional context from issue comments.
+    required: false
+    default: "@gemini-review"
+  gemini_model:
+    description: Optional Gemini model override. Leave empty to use Gemini CLI's default.
+    required: false
+  gemini_cli_version:
+    description: Gemini CLI version installed by google-github-actions/run-gemini-cli.
+    required: false
+    default: latest
+  gemini_debug:
+    description: Enable Gemini CLI debug logging.
+    required: false
+    default: "false"
+  upload_artifacts:
+    description: Upload Gemini stdout, stderr, and telemetry artifacts.
+    required: false
+    default: "true"
+  workflow_name:
+    description: Workflow name used for Gemini telemetry.
+    required: false
+    default: gemini-inline-pr-review
+  app_id:
+    description: Optional GitHub App ID. When set, the action mints an app token for review comments.
+    required: false
+  app_private_key:
+    description: Optional GitHub App private key.
+    required: false
+  gcp_location:
+    description: Google Cloud location for Vertex AI or Gemini Code Assist auth.
+    required: false
+  gcp_project_id:
+    description: Google Cloud project ID for Vertex AI or Gemini Code Assist auth.
+    required: false
+  gcp_service_account:
+    description: Google Cloud service account email for Workload Identity Federation.
+    required: false
+  gcp_workload_identity_provider:
+    description: Google Cloud Workload Identity Provider.
+    required: false
+  gcp_token_format:
+    description: Token format for Workload Identity Federation.
+    required: false
+    default: access_token
+  gcp_access_token_scopes:
+    description: Comma-separated OAuth scopes for Workload Identity Federation access tokens.
+    required: false
+    default: https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/userinfo.profile
+  use_gemini_code_assist:
+    description: Use Gemini Code Assist for model access.
+    required: false
+    default: "false"
+  use_vertex_ai:
+    description: Use Vertex AI for model access.
+    required: false
+    default: "false"
+  github_mcp_server:
+    description: GitHub MCP server Docker image.
+    required: false
+    default: ghcr.io/github/github-mcp-server:v0.27.0
+
+outputs:
+  summary:
+    description: Gemini CLI response output.
+    value: ${{ steps.gemini-review.outputs.gemini_response }}
+  error:
+    description: Gemini CLI error output, if any.
+    value: ${{ steps.gemini-review.outputs.gemini_errors }}
+  pr_number:
+    description: Pull request number reviewed by the action.
+    value: ${{ steps.pr.outputs.number }}
+
+runs:
+  using: composite
+  steps:
+    - name: Mint GitHub App token
+      id: app-token
+      if: ${{ inputs.app_id != '' }}
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ inputs.app_id }}
+        private-key: ${{ inputs.app_private_key }}
+        permission-contents: read
+        permission-issues: write
+        permission-pull-requests: write
+
+    - name: Resolve pull request number
+      id: pr
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        EVENT_PR: ${{ github.event.pull_request.number }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+        INPUT_PR: ${{ inputs.pr_number }}
+        COMMENT_BODY: ${{ github.event.comment.body }}
+        COMMENT_TRIGGER: ${{ inputs.comment_trigger }}
+        INPUT_CONTEXT: ${{ inputs.additional_context }}
+      run: |
+        set -euo pipefail
+
+        if [[ -n "$INPUT_PR" ]]; then
+          pr_number="$INPUT_PR"
+        elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+          pr_number="$EVENT_PR"
+        elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
+          pr_number="$ISSUE_NUMBER"
+        else
+          echo "Unable to resolve pull request number. Pass pr_number for this event." >&2
+          exit 1
+        fi
+
+        additional_context="$INPUT_CONTEXT"
+        if [[ -z "$additional_context" && "$EVENT_NAME" == "issue_comment" && -n "$COMMENT_TRIGGER" ]]; then
+          additional_context="${COMMENT_BODY#*"$COMMENT_TRIGGER"}"
+        fi
+
+        {
+          echo "number=$pr_number"
+          echo "additional_context<<EOF"
+          echo "$additional_context"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Prepare Gemini context
+      shell: bash
+      env:
+        REPOSITORY: ${{ github.repository }}
+        PULL_REQUEST_NUMBER: ${{ steps.pr.outputs.number }}
+        ADDITIONAL_CONTEXT: ${{ steps.pr.outputs.additional_context }}
+      run: |
+        set -euo pipefail
+        mkdir -p .gemini
+        jq -n \
+          --arg repo "$REPOSITORY" \
+          --arg pr "$PULL_REQUEST_NUMBER" \
+          --arg context "$ADDITIONAL_CONTEXT" \
+          '{repository: $repo, pull_request_number: $pr, additional_context: $context}' \
+          > .gemini/context.json
+
+    - name: Run Gemini pull request review
+      id: gemini-review
+      uses: google-github-actions/run-gemini-cli@v0
+      env:
+        GEMINI_CLI_TRUST_WORKSPACE: "true"
+        GITHUB_TOKEN: ${{ steps.app-token.outputs.token || inputs.github_token || github.token }}
+        GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
+        REPOSITORY: ${{ github.repository }}
+        PULL_REQUEST_NUMBER: ${{ steps.pr.outputs.number }}
+        ADDITIONAL_CONTEXT: ${{ steps.pr.outputs.additional_context }}
+      with:
+        gcp_location: ${{ inputs.gcp_location }}
+        gcp_project_id: ${{ inputs.gcp_project_id }}
+        gcp_service_account: ${{ inputs.gcp_service_account }}
+        gcp_token_format: ${{ inputs.gcp_token_format }}
+        gcp_access_token_scopes: ${{ inputs.gcp_access_token_scopes }}
+        gcp_workload_identity_provider: ${{ inputs.gcp_workload_identity_provider }}
+        gemini_api_key: ${{ inputs.gemini_api_key }}
+        gemini_cli_version: ${{ inputs.gemini_cli_version }}
+        gemini_debug: ${{ inputs.gemini_debug }}
+        gemini_model: ${{ inputs.gemini_model }}
+        google_api_key: ${{ inputs.google_api_key }}
+        github_pr_number: ${{ steps.pr.outputs.number }}
+        upload_artifacts: ${{ inputs.upload_artifacts }}
+        use_gemini_code_assist: ${{ inputs.use_gemini_code_assist }}
+        use_vertex_ai: ${{ inputs.use_vertex_ai }}
+        workflow_name: ${{ inputs.workflow_name }}
+        settings: |
+          {
+            "telemetry": {
+              "enabled": true,
+              "target": "local",
+              "outfile": ".gemini/telemetry.log"
+            },
+            "mcpServers": {
+              "github": {
+                "command": "docker",
+                "args": [
+                  "run",
+                  "-i",
+                  "--rm",
+                  "-e",
+                  "GITHUB_PERSONAL_ACCESS_TOKEN",
+                  "${{ inputs.github_mcp_server }}"
+                ],
+                "includeTools": [
+                  "add_comment_to_pending_review",
+                  "pull_request_read",
+                  "pull_request_review_write"
+                ],
+                "env": {
+                  "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+                }
+              }
+            }
+          }
+        extensions: |
+          [
+            "${{ github.action_path }}"
+          ]
+        prompt: /pr-code-review
+
+    - name: Check Gemini execution result
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        stdout_log="gemini-artifacts/stdout.log"
+        if [[ ! -s "$stdout_log" ]]; then
+          echo "::warning title=Gemini output missing::Gemini stdout artifact was not created."
+          exit 0
+        fi
+
+        if jq -e '.error' "$stdout_log" >/dev/null 2>&1; then
+          error_type="$(jq -r '.error.type // "UNKNOWN"' "$stdout_log")"
+          error_message="$(jq -r '.error.message // "Gemini CLI returned a structured error."' "$stdout_log")"
+          echo "::error title=Gemini CLI returned ${error_type}::${error_message}"
+          exit 1
+        fi
+
+branding:
+  icon: git-pull-request
+  color: blue

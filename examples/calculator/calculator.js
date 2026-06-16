@@ -4,3 +4,10 @@ export function calculateDiscountedTotal(items, discountPercent = 0) {
 
   return Number((subtotal - discount).toFixed(2));
 }
+
+export function normalizeLineItems(items) {
+  return items.map((item) => ({
+    ...item,
+    quantity: item.quantity || 1,
+  }));
+}

@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { calculateDiscountedTotal } from "./calculator.js";
+import { calculateDiscountedTotal, normalizeLineItems } from "./calculator.js";
 
 const total = calculateDiscountedTotal(
   [
@@ -10,3 +10,5 @@ const total = calculateDiscountedTotal(
 );
 
 assert.equal(total, 22.5);
+
+assert.deepEqual(normalizeLineItems([{ price: 7 }]), [{ price: 7, quantity: 1 }]);
