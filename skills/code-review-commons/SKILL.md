@@ -41,6 +41,9 @@ Prioritize correctness and operational risk over stylistic preferences.
   review summary, general feedback body, or top-level PR comment.
 - If there are no substantive findings that can be attached to changed diff
   lines, leave no review comment.
+- On re-review, inspect previous review threads and comments. Re-comment only
+  when a previous item is still unresolved in the current diff, and attach that
+  comment to the current changed line where the issue remains.
 - Never approve or request changes from the GitHub review command; submit COMMENT only.
 
 ## Severity Guidelines

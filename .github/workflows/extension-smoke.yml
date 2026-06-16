@@ -18,5 +18,14 @@ jobs:
           test -f commands/pr-code-review.toml
           test -f skills/code-review-commons/SKILL.md
           jq -e '.name == "linuxlewis-code-review" and .contextFileName == "GEMINI.md"' gemini-extension.json
-          grep -q "pull_request_read.get_diff" commands/pr-code-review.toml
-          grep -q "submit_pending_pull_request_review" commands/pr-code-review.toml
+          python3 - <<'PY'
+          import pathlib
+          import tomllib
+
+          for path in pathlib.Path("commands").glob("*.toml"):
+              tomllib.loads(path.read_text())
+              print(f"ok {path}")
+          PY
+          grep -q "method.*get_diff" commands/pr-code-review.toml
+          grep -q "get_review_comments" commands/pr-code-review.toml
+          grep -q "pull_request_review_write" commands/pr-code-review.toml

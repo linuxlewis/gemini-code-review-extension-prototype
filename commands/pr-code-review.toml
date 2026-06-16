@@ -4,14 +4,37 @@ prompt = """
   **GitHub Repository**: $REPOSITORY
   **Pull Request Number**: $PULL_REQUEST_NUMBER
   **Additional User Instructions**: $ADDITIONAL_CONTEXT
-  **Pull Request Details**: use `pull_request_read.get` to get the title, body, and metadata.
-  **Code Changes**: call `pull_request_read.get_diff` to retrieve the pull request diff.
+  **Pull Request Details**: call `pull_request_read` with method `get` to get the title, body, and metadata.
+  **Code Changes**: call `pull_request_read` with method `get_diff` to retrieve the pull request diff.
+  **Previous Review Threads**: call `pull_request_read` with method `get_review_comments` to retrieve existing review threads and comments.
 </CONTEXT>
 
 <PROTOCOL>
 Activate the `code-review-commons` skill for persona, objective, instructions, and critical constraints.
+Before creating new comments, run the exact re-review pass in `<REREVIEW>`.
 Then submit a review following the exact structure and rules in `<SUBMIT_REVIEW>`.
 </PROTOCOL>
+
+<REREVIEW>
+Previous review comments are part of the review scope.
+
+1. Inspect all available review threads from `pull_request_read` with method
+   `get_review_comments`.
+2. Focus on unresolved, non-outdated threads first. Also inspect outdated
+   threads when their underlying issue may still exist in the current diff.
+3. For each previous review comment, decide whether the current PR diff
+   actually addresses the concrete failure mode.
+4. Do not repeat comments that are resolved by the current code.
+5. If a previous comment is still valid, leave a new inline comment on the
+   current changed diff line where the issue exists. The comment must explain
+   that the previous review item is still unresolved and name the concrete
+   remaining failure mode.
+6. If the old commented line moved, comment on the current changed line that
+   still contains the issue. If there is no changed line where the issue can be
+   attached, do not leave a comment.
+7. Do not post a top-level status update about resolved or unresolved previous
+   comments.
+</REREVIEW>
 
 <SUBMIT_REVIEW>
 Review comment formatting:
@@ -25,7 +48,8 @@ Review comment formatting:
    If there are no findings that can be attached to changed diff lines, do not
    create or submit a review.
 
-2. Create a pending review by calling `create_pending_pull_request_review`.
+2. Create a pending review by calling `pull_request_review_write` with method
+   `create`.
    Ignore an error saying there can only be one pending review and continue.
 
 3. For each substantive finding, call `add_comment_to_pending_review`.
@@ -46,7 +70,8 @@ Review comment formatting:
    [{{SEVERITY}}] {{COMMENT_TEXT}}
    </COMMENT>
 
-4. Submit the pending review with `submit_pending_pull_request_review`.
+4. Submit the pending review by calling `pull_request_review_write` with method
+   `submit_pending`.
    The event type MUST be `COMMENT`. Do not use `APPROVE` or `REQUEST_CHANGES`.
    The review body MUST be empty. Do not include a summary, general feedback,
    positive highlights, or repeated inline details in the submitted review body.
