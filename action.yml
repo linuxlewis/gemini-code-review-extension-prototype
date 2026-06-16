@@ -83,10 +83,10 @@ inputs:
 outputs:
   summary:
     description: Gemini CLI response output.
-    value: ${{ steps.gemini-review.outputs.summary }}
+    value: ${{ steps.gemini-review.outputs.gemini_response }}
   error:
     description: Gemini CLI error output, if any.
-    value: ${{ steps.gemini-review.outputs.error }}
+    value: ${{ steps.gemini-review.outputs.gemini_errors }}
   pr_number:
     description: Pull request number reviewed by the action.
     value: ${{ steps.pr.outputs.number }}
@@ -212,9 +212,6 @@ runs:
                   "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
                 }
               }
-            },
-            "tools": {
-              "core": []
             }
           }
         extensions: |
@@ -222,6 +219,24 @@ runs:
             "${{ github.action_path }}"
           ]
         prompt: /pr-code-review
+
+    - name: Check Gemini execution result
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        stdout_log="gemini-artifacts/stdout.log"
+        if [[ ! -s "$stdout_log" ]]; then
+          echo "::warning title=Gemini output missing::Gemini stdout artifact was not created."
+          exit 0
+        fi
+
+        if jq -e '.error' "$stdout_log" >/dev/null 2>&1; then
+          error_type="$(jq -r '.error.type // "UNKNOWN"' "$stdout_log")"
+          error_message="$(jq -r '.error.message // "Gemini CLI returned a structured error."' "$stdout_log")"
+          echo "::error title=Gemini CLI returned ${error_type}::${error_message}"
+          exit 1
+        fi
 
 branding:
   icon: git-pull-request

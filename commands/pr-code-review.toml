@@ -4,9 +4,9 @@ prompt = """
   **GitHub Repository**: $REPOSITORY
   **Pull Request Number**: $PULL_REQUEST_NUMBER
   **Additional User Instructions**: $ADDITIONAL_CONTEXT
-  **Pull Request Details**: call `pull_request_read` with method `get` to get the title, body, and metadata.
-  **Code Changes**: call `pull_request_read` with method `get_diff` to retrieve the pull request diff.
-  **Previous Review Threads**: call `pull_request_read` with method `get_review_comments` to retrieve existing review threads and comments.
+  **Pull Request Details**: call `mcp_github_pull_request_read` with method `get` to get the title, body, and metadata.
+  **Code Changes**: call `mcp_github_pull_request_read` with method `get_diff` to retrieve the pull request diff.
+  **Previous Review Threads**: call `mcp_github_pull_request_read` with method `get_review_comments` to retrieve existing review threads and comments.
 </CONTEXT>
 
 <PROTOCOL>
@@ -18,7 +18,7 @@ Then submit a review following the exact structure and rules in `<SUBMIT_REVIEW>
 <REREVIEW>
 Previous review comments are part of the review scope.
 
-1. Inspect all available review threads from `pull_request_read` with method
+1. Inspect all available review threads from `mcp_github_pull_request_read` with method
    `get_review_comments`.
 2. Focus on unresolved, non-outdated threads first. Also inspect outdated
    threads when their underlying issue may still exist in the current diff.
@@ -48,11 +48,11 @@ Review comment formatting:
    If there are no findings that can be attached to changed diff lines, do not
    create or submit a review.
 
-2. Create a pending review by calling `pull_request_review_write` with method
+2. Create a pending review by calling `mcp_github_pull_request_review_write` with method
    `create`.
    Ignore an error saying there can only be one pending review and continue.
 
-3. For each substantive finding, call `add_comment_to_pending_review`.
+3. For each substantive finding, call `mcp_github_add_comment_to_pending_review`.
 
    If there is a suggested change, use this exact comment shape:
 
@@ -70,7 +70,7 @@ Review comment formatting:
    [{{SEVERITY}}] {{COMMENT_TEXT}}
    </COMMENT>
 
-4. Submit the pending review by calling `pull_request_review_write` with method
+4. Submit the pending review by calling `mcp_github_pull_request_review_write` with method
    `submit_pending`.
    The event type MUST be `COMMENT`. Do not use `APPROVE` or `REQUEST_CHANGES`.
    The review body MUST be empty. Do not include a summary, general feedback,
