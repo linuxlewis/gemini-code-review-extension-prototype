@@ -1,4 +1,4 @@
-name: Gemini PR Review Prototype
+name: Gemini PR Review
 
 on:
   pull_request:
@@ -43,24 +43,10 @@ jobs:
         contains(github.event.comment.body, '@gemini-review')
       )
     steps:
-      - name: Checkout action
-        uses: actions/checkout@v4
-
       - name: Gemini inline PR review
-        uses: ./
+        uses: linuxlewis/gemini-code-review-extension-prototype@v0.1.0
         with:
-          app_id: ${{ vars.APP_ID }}
-          app_private_key: ${{ secrets.APP_PRIVATE_KEY }}
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          gemini_model: ${{ vars.GEMINI_MODEL }}
-          google_api_key: ${{ secrets.GOOGLE_API_KEY }}
-          gcp_location: ${{ vars.GOOGLE_CLOUD_LOCATION }}
-          gcp_project_id: ${{ vars.GOOGLE_CLOUD_PROJECT }}
-          gcp_service_account: ${{ vars.SERVICE_ACCOUNT_EMAIL }}
-          gcp_workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           github_token: ${{ github.token }}
           pr_number: ${{ inputs.pr_number }}
           additional_context: ${{ inputs.additional_context }}
-          use_gemini_code_assist: ${{ vars.GOOGLE_GENAI_USE_GCA || 'false' }}
-          use_vertex_ai: ${{ vars.GOOGLE_GENAI_USE_VERTEXAI || 'false' }}
-          workflow_name: gemini-pr-review-prototype

@@ -1,97 +1,28 @@
-# Gemini Code Review Extension Prototype
+# Gemini Inline PR Review
 
-This repository contains a custom [Gemini CLI](https://github.com/google-gemini/gemini-cli)
-extension for GitHub pull request reviews. It is modeled on Google's public
-Gemini CLI extension pattern, but the review policy is intentionally stricter:
+Reusable GitHub Action for Gemini-powered pull request review.
 
-- PR findings are posted as GitHub line comments only.
-- No review summary body is posted.
-- No top-level PR comment is posted by the review command.
-- Re-reviews inspect previous review threads and re-comment only when an old
-  finding is still unresolved on a current changed diff line.
+The action runs [Gemini CLI](https://github.com/google-gemini/gemini-cli) with a
+bundled review extension and posts findings as GitHub inline review comments.
+It is designed for code review automation, not chat-style PR summaries.
 
-The workflow uses Google's
-[`google-github-actions/run-gemini-cli`](https://github.com/google-github-actions/run-gemini-cli)
-action and the official
-[`github/github-mcp-server`](https://github.com/github/github-mcp-server) Docker
-image.
+## Behavior
 
-## What Gets Installed
+- Posts findings as line comments only.
+- Does not approve pull requests.
+- Does not request changes.
+- Does not post a review summary body.
+- Does not post top-level PR comments.
+- Re-reviews previous review threads and re-comments only when a prior finding
+  is still unresolved on a current changed diff line.
+- Leaves no review when there are no substantive findings that can be attached
+  to changed lines.
 
-Copy these paths into the repository you want Gemini to review:
+## Quick Start
 
-```text
-commands/
-  code-review.toml
-  pr-code-review.toml
-skills/code-review-commons/
-  SKILL.md
-gemini-extension.json
-GEMINI.md
-.github/workflows/
-  gemini-pr-review.yml
-  extension-smoke.yml
-```
+### 1. Add Your Gemini API Key
 
-The PR workflow installs the checked-out repository as a Gemini CLI extension:
-
-```yaml
-extensions: |
-  [
-    "."
-  ]
-prompt: /pr-code-review
-```
-
-That means the extension files live in the same repo being reviewed. This is the
-simplest setup for a real repository.
-
-## Quick Setup
-
-### 1. Copy the Files
-
-From this prototype repo, copy the extension files and workflow files into your
-target repo.
-
-If you are copying from a local checkout:
-
-```bash
-SOURCE=/path/to/gemini-code-review-extension-prototype
-TARGET=/path/to/your-repo
-
-mkdir -p "$TARGET/.github/workflows"
-cp -R "$SOURCE/commands" "$TARGET/"
-cp -R "$SOURCE/skills" "$TARGET/"
-cp "$SOURCE/gemini-extension.json" "$TARGET/"
-cp "$SOURCE/GEMINI.md" "$TARGET/"
-cp "$SOURCE/.github/workflows/gemini-pr-review.yml" "$TARGET/.github/workflows/"
-cp "$SOURCE/.github/workflows/extension-smoke.yml" "$TARGET/.github/workflows/"
-```
-
-### 2. Ignore Local Gemini State
-
-Add this to your target repo's `.gitignore`:
-
-```gitignore
-.gemini/
-gha-creds-*.json
-```
-
-The workflow writes `.gemini/settings.json` at runtime. Do not commit local
-Gemini credentials or generated settings.
-
-### 3. Add Your Gemini API Key
-
-Use one authentication method. For a normal Gemini API key from Google AI
-Studio, add a repository secret named `GEMINI_API_KEY`.
-
-With the GitHub web UI:
-
-1. Open your repo on GitHub.
-2. Go to `Settings > Secrets and variables > Actions`.
-3. Click `New repository secret`.
-4. Name it `GEMINI_API_KEY`.
-5. Paste your API key as the value.
+Create a repository secret named `GEMINI_API_KEY`.
 
 With the GitHub CLI:
 
@@ -99,11 +30,104 @@ With the GitHub CLI:
 gh secret set GEMINI_API_KEY --repo OWNER/REPO
 ```
 
-The command will prompt for the secret value.
+Or use GitHub's UI:
 
-### 4. Confirm GitHub Actions Can Write PR Reviews
+`Settings > Secrets and variables > Actions > New repository secret`
 
-The workflow declares the permissions it needs:
+### 2. Add the Workflow
+
+Create `.github/workflows/gemini-pr-review.yml` in your repository:
+
+```yaml
+name: Gemini PR Review
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+      additional_context:
+        description: Optional review focus
+        required: false
+        default: ""
+
+concurrency:
+  group: gemini-pr-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  review:
+    name: Gemini review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@gemini-review')
+      )
+    steps:
+      - name: Gemini inline PR review
+        uses: linuxlewis/gemini-code-review-extension-prototype@v0.1.0
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          github_token: ${{ github.token }}
+          pr_number: ${{ inputs.pr_number }}
+          additional_context: ${{ inputs.additional_context }}
+```
+
+No `actions/checkout` step is required in the consuming repository. The action
+bundles its own Gemini extension and reads the pull request through GitHub APIs.
+
+Pin `uses:` to the release tag you want to run. For early testing before a
+release is cut, use the branch or commit SHA you are evaluating.
+
+### 3. Open or Update a PR
+
+The workflow runs automatically for same-repository pull requests when they are
+opened, reopened, synchronized, or marked ready for review.
+
+To request an on-demand re-review, comment on the PR:
+
+```text
+@gemini-review
+```
+
+You can include focus text after the marker:
+
+```text
+@gemini-review focus on authorization edge cases
+```
+
+To run manually:
+
+```bash
+gh workflow run gemini-pr-review.yml \
+  --repo OWNER/REPO \
+  -f pr_number=123 \
+  -f additional_context="Focus on data loss and concurrency bugs."
+```
+
+## Required Permissions
+
+The workflow needs:
 
 ```yaml
 permissions:
@@ -113,176 +137,127 @@ permissions:
   pull-requests: write
 ```
 
-If your organization restricts the default `GITHUB_TOKEN`, check:
+`pull-requests: write` is required to create inline review comments.
+`issues: write` is included because GitHub PR conversations also use issue APIs.
+`id-token: write` is only needed if you use Workload Identity Federation, but it
+is safe to leave in place for the default API key setup.
+
+If review comments fail with `Resource not accessible by integration`, check
+your repository or organization Actions settings:
 
 `Settings > Actions > General > Workflow permissions`
 
-The workflow needs permission to write pull request reviews. Same-repository PRs
-use the built-in `GITHUB_TOKEN` by default.
+## Inputs
 
-### 5. Commit and Push
+Common inputs:
 
-Commit the copied files and push them to your target repository.
+| Input | Required | Description |
+| --- | --- | --- |
+| `gemini_api_key` | Usually | Gemini API key from Google AI Studio. |
+| `github_token` | No | GitHub token used by the GitHub MCP server. Defaults to `github.token` when omitted. |
+| `pr_number` | Manual only | Pull request number for `workflow_dispatch`. |
+| `additional_context` | No | Extra review focus. Also populated from text after `@gemini-review`. |
+| `gemini_model` | No | Optional model override. Leave empty for Gemini CLI's default. |
+| `gemini_cli_version` | No | Gemini CLI version. Defaults to `latest`. |
 
-```bash
-git add commands skills gemini-extension.json GEMINI.md .github/workflows
-git commit -m "add Gemini PR review workflow"
-git push
+Authentication alternatives:
+
+| Input | Description |
+| --- | --- |
+| `google_api_key` | Vertex AI API key. Use with `use_vertex_ai: "true"`. |
+| `gcp_workload_identity_provider` | Workload Identity Federation provider. |
+| `gcp_project_id` | Google Cloud project for WIF. |
+| `gcp_service_account` | Service account for WIF token generation. |
+| `gcp_location` | Google Cloud location. |
+| `use_vertex_ai` | Set to `"true"` for Vertex AI. |
+| `use_gemini_code_assist` | Set to `"true"` for Gemini Code Assist auth. |
+
+Use exactly one Gemini authentication method:
+
+- `gemini_api_key`
+- `google_api_key` with Vertex AI
+- Workload Identity Federation
+
+## Optional GitHub App Identity
+
+By default, comments come from the workflow's `GITHUB_TOKEN`. If you want review
+comments to come from a dedicated GitHub App, pass the app credentials:
+
+```yaml
+steps:
+  - name: Gemini inline PR review
+    uses: linuxlewis/gemini-code-review-extension-prototype@v0.1.0
+    with:
+      app_id: ${{ vars.GEMINI_REVIEW_APP_ID }}
+      app_private_key: ${{ secrets.GEMINI_REVIEW_APP_PRIVATE_KEY }}
+      gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
 ```
 
-## Running a Review
-
-The workflow runs automatically on same-repository pull requests when they are
-opened, reopened, synchronized, or marked ready for review.
-
-It also supports manual and comment-based review:
-
-```bash
-gh workflow run gemini-pr-review.yml \
-  --repo OWNER/REPO \
-  -f pr_number=123 \
-  -f additional_context="Focus on correctness and test coverage."
-```
-
-Or comment on a PR:
-
-```text
-@gemini-review focus on edge cases in the parser
-```
-
-Fork PRs are not auto-reviewed by the `pull_request` trigger. A maintainer can
-trigger review manually or by commenting `@gemini-review`; the workflow checks
-out the trusted base repository and reads the PR diff through GitHub APIs.
-
-## Expected Behavior
-
-For PR review, Gemini should:
-
-1. Read the PR metadata and diff.
-2. Read previous review threads with `pull_request_read` method
-   `get_review_comments`.
-3. Decide whether prior comments were resolved by the current diff.
-4. Add only inline review comments on changed lines.
-5. Submit the pending review with event `COMMENT` and an empty body.
-
-Gemini should not:
-
-- approve the PR
-- request changes
-- post a review summary
-- post a top-level PR comment
-- repeat resolved prior comments
-- comment on unchanged context lines
-
-If there are no substantive findings that can be attached to changed diff lines,
-the command should leave no review.
-
-## Optional Configuration
-
-### Model
-
-By default, the workflow leaves `GEMINI_MODEL` unset and lets Gemini CLI use its
-default model. To pin a model, create a repository variable:
-
-```bash
-gh variable set GEMINI_MODEL --repo OWNER/REPO --body "MODEL_NAME"
-```
-
-### GitHub App Token
-
-The built-in `GITHUB_TOKEN` is enough for same-repository PRs in most repos. If
-you want reviews to come from your own GitHub App, configure:
-
-- repository variable `APP_ID`
-- repository secret `APP_PRIVATE_KEY`
-
-The app needs these permissions:
+The GitHub App needs:
 
 - Contents: read
 - Issues: write
 - Pull requests: write
 
-When `APP_ID` is unset, the workflow falls back to `github.token`.
+## Fork Pull Requests
 
-### Vertex AI or Workload Identity Federation
+The recommended workflow does not automatically review fork PRs on the
+`pull_request` event. That avoids running automated review on untrusted fork
+events with write-capable tokens.
 
-The workflow also exposes the auth inputs supported by
-`google-github-actions/run-gemini-cli`:
+For a fork PR, a maintainer can trigger review manually with `workflow_dispatch`
+or by commenting:
 
-- `GOOGLE_API_KEY` secret with `GOOGLE_GENAI_USE_VERTEXAI=true`
-- `GCP_WIF_PROVIDER`, `GOOGLE_CLOUD_PROJECT`, `SERVICE_ACCOUNT_EMAIL`, and
-  either `GOOGLE_GENAI_USE_VERTEXAI=true` or `GOOGLE_GENAI_USE_GCA=true`
-
-Do not configure multiple auth methods at once. The action warns when more than
-one of `gemini_api_key`, `google_api_key`, or `gcp_workload_identity_provider`
-is present.
-
-## Local Smoke Test
-
-You can test the local command before pushing:
-
-```bash
-gemini extensions link .
-gemini --prompt "/code-review"
+```text
+@gemini-review
 ```
 
-The local command reviews your current branch diff against `origin/HEAD`.
-
-To validate the extension files without Gemini auth:
-
-```bash
-python3 - <<'PY'
-import pathlib, tomllib
-for path in pathlib.Path("commands").glob("*.toml"):
-    tomllib.loads(path.read_text())
-    print(f"ok {path}")
-PY
-
-git diff --check
-```
-
-The `extension-smoke.yml` workflow performs a similar validation in GitHub
-Actions.
+The action reads the PR diff through GitHub APIs and writes review comments with
+the token granted to the workflow.
 
 ## Troubleshooting
 
 ### `No authentication method provided`
 
-The repo does not have a usable Gemini auth method. For API key auth, set:
+Set the `GEMINI_API_KEY` repository secret and rerun the workflow:
 
 ```bash
 gh secret set GEMINI_API_KEY --repo OWNER/REPO
 ```
 
-Then rerun the workflow or comment `@gemini-review` on the PR.
+### No Comments Were Posted
 
-### `Resource not accessible by integration`
+This can be the correct result. The action is inline-only and leaves no review
+when Gemini finds no substantive issue that can be attached to a changed diff
+line.
 
-GitHub did not grant the workflow enough write permission to create PR review
-comments. Check repository or organization Actions permissions, or configure the
-optional GitHub App mode.
+### Comments Are Missing
 
-### Gemini Runs but No Comments Appear
+GitHub only accepts line review comments on valid diff positions. Comments aimed
+at unchanged lines or lines outside the current diff hunk may be dropped by
+GitHub. The bundled prompt instructs Gemini to comment only on changed `LEFT` or
+`RIGHT` diff lines.
 
-The prompt is intentionally inline-only. No comment is posted when Gemini finds
-no issue that can be attached to a changed diff line.
+### Docker Is Required
 
-GitHub can silently drop review comments aimed at lines outside the current diff
-hunk. Keep comments attached to changed `LEFT` or `RIGHT` lines only.
-
-### Fork PRs Do Not Auto-Run
-
-This is intentional. Automatic `pull_request` review is limited to
-same-repository branches. For fork PRs, a maintainer can trigger a review with
-`@gemini-review` or `workflow_dispatch`.
-
-### Docker Is Required on Self-Hosted Runners
-
-The workflow runs the GitHub MCP server with Docker:
+The action runs the official GitHub MCP server Docker image:
 
 ```text
 ghcr.io/github/github-mcp-server:v0.27.0
 ```
 
-GitHub-hosted Ubuntu runners already have Docker. Self-hosted runners must
+GitHub-hosted Ubuntu runners already include Docker. Self-hosted runners must
 provide it.
+
+## Repository Contents
+
+Most users only need the workflow snippet above. The internal files in this repo
+are for the action itself:
+
+```text
+action.yml
+commands/pr-code-review.toml
+skills/code-review-commons/SKILL.md
+gemini-extension.json
+GEMINI.md
+```

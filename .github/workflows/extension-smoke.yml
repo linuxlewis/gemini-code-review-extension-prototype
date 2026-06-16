@@ -13,11 +13,18 @@ jobs:
       - name: Validate extension files
         run: |
           set -euo pipefail
+          test -f action.yml
           test -f gemini-extension.json
           test -f commands/code-review.toml
           test -f commands/pr-code-review.toml
           test -f skills/code-review-commons/SKILL.md
+          test -f examples/workflows/gemini-pr-review.yml
           jq -e '.name == "linuxlewis-code-review" and .contextFileName == "GEMINI.md"' gemini-extension.json
+          ruby -e 'require "yaml"; ARGV.each { |f| YAML.load_file(f); puts "ok #{f}" }' \
+            action.yml \
+            .github/workflows/extension-smoke.yml \
+            .github/workflows/gemini-pr-review.yml \
+            examples/workflows/gemini-pr-review.yml
           python3 - <<'PY'
           import pathlib
           import tomllib
@@ -29,3 +36,6 @@ jobs:
           grep -q "method.*get_diff" commands/pr-code-review.toml
           grep -q "get_review_comments" commands/pr-code-review.toml
           grep -q "pull_request_review_write" commands/pr-code-review.toml
+          grep -q "google-github-actions/run-gemini-cli@v0" action.yml
+          grep -q "github.action_path" action.yml
+          grep -q "linuxlewis/gemini-code-review-extension-prototype@" examples/workflows/gemini-pr-review.yml
