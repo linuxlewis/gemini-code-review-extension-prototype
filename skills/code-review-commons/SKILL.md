@@ -37,6 +37,10 @@ Prioritize correctness and operational risk over stylistic preferences.
 - If the same issue appears multiple times, comment once and mention the related locations.
 - Prefer comments that name the user-visible failure, data corruption path, security exposure, or maintenance cost.
 - Include a code suggestion only when the replacement is small, precise, and safe.
+- For GitHub pull request reviews, use inline line comments only. Do not post a
+  review summary, general feedback body, or top-level PR comment.
+- If there are no substantive findings that can be attached to changed diff
+  lines, leave no review comment.
 - Never approve or request changes from the GitHub review command; submit COMMENT only.
 
 ## Severity Guidelines

@@ -21,10 +21,14 @@ Review comment formatting:
 - Comments on after-code must target RIGHT diff lines.
 - Do not comment on unchanged context lines.
 
-1. Create a pending review by calling `create_pending_pull_request_review`.
+1. Identify all substantive findings before creating a review.
+   If there are no findings that can be attached to changed diff lines, do not
+   create or submit a review.
+
+2. Create a pending review by calling `create_pending_pull_request_review`.
    Ignore an error saying there can only be one pending review and continue.
 
-2. For each substantive finding, call `add_comment_to_pending_review`.
+3. For each substantive finding, call `add_comment_to_pending_review`.
 
    If there is a suggested change, use this exact comment shape:
 
@@ -42,17 +46,10 @@ Review comment formatting:
    [{{SEVERITY}}] {{COMMENT_TEXT}}
    </COMMENT>
 
-3. Submit the pending review with `submit_pending_pull_request_review`.
+4. Submit the pending review with `submit_pending_pull_request_review`.
    The event type MUST be `COMMENT`. Do not use `APPROVE` or `REQUEST_CHANGES`.
-   The summary comment MUST use this exact markdown format:
-
-   ## Review Summary
-
-   A brief, high-level assessment of the pull request objective and quality in 2-3 sentences.
-
-   ## General Feedback
-
-   - Concise general observations, positive highlights, or recurring patterns not suitable for inline comments.
-   - Do not repeat inline comment details.
+   The review body MUST be empty. Do not include a summary, general feedback,
+   positive highlights, or repeated inline details in the submitted review body.
+   Do not post a separate top-level PR comment.
 </SUBMIT_REVIEW>
 """
