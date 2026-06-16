@@ -1,0 +1,6 @@
+{
+  "name": "linuxlewis-code-review",
+  "version": "0.1.0",
+  "description": "Prototype Gemini CLI extension for pragmatic GitHub pull request reviews.",
+  "contextFileName": "GEMINI.md"
+}

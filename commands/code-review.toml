@@ -1,0 +1,37 @@
+description = "Reviews code changes on the current branch"
+prompt = """
+<CONTEXT>
+  **Code Changes**: call the `git diff -U5 --merge-base origin/HEAD` tool to retrieve the changes.
+</CONTEXT>
+
+<PROTOCOL>
+Activate the `code-review-commons` skill for persona, objective, instructions, and critical constraints.
+Then follow the exact structure and rules in the `<OUTPUT>` section.
+</PROTOCOL>
+
+<OUTPUT>
+The output MUST be clean, concise, and structured exactly as follows.
+
+If no issues are found:
+
+# Change summary: [Single sentence description of the overall change].
+No issues found. Code looks clean and ready to merge.
+
+If issues are found:
+
+# Change summary: [Single sentence description of the overall change].
+[Optional general feedback for the entire change, e.g. unrelated change that should be in a different PR.]
+
+## File: path/to/file
+### L<LINE_NUMBER>: [<SEVERITY>] Single sentence summary of the issue.
+
+Focused explanation of why this is a real issue.
+
+Suggested change:
+```diff
+    unchanged context;
+-   problematic code;
++   improved code;
+```
+</OUTPUT>
+"""

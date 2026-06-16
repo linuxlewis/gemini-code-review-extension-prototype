@@ -1,0 +1,156 @@
+name: Gemini PR Review Prototype
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+      additional_context:
+        description: Optional review focus
+        required: false
+        default: ""
+
+concurrency:
+  group: gemini-pr-review-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  review:
+    name: Gemini review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.draft == false
+      ) ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@gemini-review')
+      )
+    steps:
+      - name: Mint GitHub App token
+        id: app-token
+        if: ${{ vars.APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Resolve pull request number
+        id: pr
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          INPUT_PR: ${{ inputs.pr_number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          DISPATCH_CONTEXT: ${{ inputs.additional_context }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            pr_number="$EVENT_PR"
+            additional_context=""
+          elif [[ "$EVENT_NAME" == "issue_comment" ]]; then
+            pr_number="$ISSUE_NUMBER"
+            additional_context="${COMMENT_BODY#*@gemini-review}"
+          else
+            pr_number="$INPUT_PR"
+            additional_context="$DISPATCH_CONTEXT"
+          fi
+
+          {
+            echo "number=$pr_number"
+            echo "additional_context<<EOF"
+            echo "$additional_context"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare Gemini context
+        env:
+          REPOSITORY: ${{ github.repository }}
+          PULL_REQUEST_NUMBER: ${{ steps.pr.outputs.number }}
+          ADDITIONAL_CONTEXT: ${{ steps.pr.outputs.additional_context }}
+        run: |
+          set -euo pipefail
+          mkdir -p .gemini
+          jq -n \
+            --arg repo "$REPOSITORY" \
+            --arg pr "$PULL_REQUEST_NUMBER" \
+            --arg context "$ADDITIONAL_CONTEXT" \
+            '{repository: $repo, pull_request_number: $pr, additional_context: $context}' \
+            > .gemini/context.json
+
+      - name: Run Gemini pull request review
+        id: gemini-review
+        uses: google-github-actions/run-gemini-cli@v0
+        env:
+          GEMINI_CLI_TRUST_WORKSPACE: "true"
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          gemini_model: ${{ vars.GEMINI_MODEL || 'gemini-3.5-flash' }}
+          github_pr_number: ${{ steps.pr.outputs.number }}
+          upload_artifacts: true
+          workflow_name: gemini-pr-review-prototype
+          settings: |
+            {
+              "telemetry": {
+                "enabled": true,
+                "target": "local",
+                "outfile": ".gemini/telemetry.log"
+              },
+              "mcpServers": {
+                "github": {
+                  "command": "docker",
+                  "args": [
+                    "run",
+                    "-i",
+                    "--rm",
+                    "-e",
+                    "GITHUB_PERSONAL_ACCESS_TOKEN",
+                    "ghcr.io/github/github-mcp-server:v0.27.0"
+                  ],
+                  "includeTools": [
+                    "add_comment_to_pending_review",
+                    "pull_request_read",
+                    "pull_request_review_write"
+                  ],
+                  "env": {
+                    "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+                  }
+                }
+              },
+              "tools": {
+                "core": []
+              }
+            }
+          extensions: |
+            [
+              "."
+            ]
+          prompt: /pr-code-review

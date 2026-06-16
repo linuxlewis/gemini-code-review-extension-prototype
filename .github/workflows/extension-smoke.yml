@@ -1,0 +1,22 @@
+name: Extension Smoke Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate extension files
+        run: |
+          set -euo pipefail
+          test -f gemini-extension.json
+          test -f commands/code-review.toml
+          test -f commands/pr-code-review.toml
+          test -f skills/code-review-commons/SKILL.md
+          jq -e '.name == "linuxlewis-code-review" and .contextFileName == "GEMINI.md"' gemini-extension.json
+          grep -q "pull_request_read.get_diff" commands/pr-code-review.toml
+          grep -q "submit_pending_pull_request_review" commands/pr-code-review.toml

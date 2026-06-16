@@ -1,0 +1,58 @@
+description = "Reviews code changes in a GitHub pull request"
+prompt = """
+<CONTEXT>
+  **GitHub Repository**: $REPOSITORY
+  **Pull Request Number**: $PULL_REQUEST_NUMBER
+  **Additional User Instructions**: $ADDITIONAL_CONTEXT
+  **Pull Request Details**: use `pull_request_read.get` to get the title, body, and metadata.
+  **Code Changes**: call `pull_request_read.get_diff` to retrieve the pull request diff.
+</CONTEXT>
+
+<PROTOCOL>
+Activate the `code-review-commons` skill for persona, objective, instructions, and critical constraints.
+Then submit a review following the exact structure and rules in `<SUBMIT_REVIEW>`.
+</PROTOCOL>
+
+<SUBMIT_REVIEW>
+Review comment formatting:
+
+- Line accuracy is mandatory. Suggestions must align with the exact diff line and indentation.
+- Comments on before-code must target LEFT diff lines.
+- Comments on after-code must target RIGHT diff lines.
+- Do not comment on unchanged context lines.
+
+1. Create a pending review by calling `create_pending_pull_request_review`.
+   Ignore an error saying there can only be one pending review and continue.
+
+2. For each substantive finding, call `add_comment_to_pending_review`.
+
+   If there is a suggested change, use this exact comment shape:
+
+   <COMMENT>
+   [{{SEVERITY}}] {{COMMENT_TEXT}}
+
+   ```suggestion
+   {{CODE_SUGGESTION}}
+   ```
+   </COMMENT>
+
+   If there is no suggested change, use this exact comment shape:
+
+   <COMMENT>
+   [{{SEVERITY}}] {{COMMENT_TEXT}}
+   </COMMENT>
+
+3. Submit the pending review with `submit_pending_pull_request_review`.
+   The event type MUST be `COMMENT`. Do not use `APPROVE` or `REQUEST_CHANGES`.
+   The summary comment MUST use this exact markdown format:
+
+   ## Review Summary
+
+   A brief, high-level assessment of the pull request objective and quality in 2-3 sentences.
+
+   ## General Feedback
+
+   - Concise general observations, positive highlights, or recurring patterns not suitable for inline comments.
+   - Do not repeat inline comment details.
+</SUBMIT_REVIEW>
+"""
